@@ -5,7 +5,7 @@ import { WhatsAppService } from './services/whatsapp';
 import { UserService } from './services/user';
 import { AuthService } from './services/auth';
 import { createAuthRoutes } from './routes/auth';
-import { createWebhookRoutes } from './routes/webhook';
+import { createWebhookRoutes, handleWebhookVerification, handleIncomingWebhookMessage } from './routes/webhook';
 import { createUserRoutes } from './routes/user';
 import { Env } from './types';
 import { CONFIG, initializeConfig } from './config';
@@ -73,18 +73,12 @@ app.get('/api/auth/validate', async (c) => {
 
 // Webhook routes
 app.get('/api/webhook', async (c) => {
-  const services = c.get('services');
-  console.log("token", CONFIG.WHATSAPP.WEBHOOK_VERIFY_TOKEN)
-  const webhookApp = createWebhookRoutes(services.whatsapp);
-  //return webhookApp.fetch(c.req.raw, c.env);
-  //console.log('GET /api/webhook', services.auth);
-  return c.json({ status: 'WhatsApp OTPless Auth Service is running' });
+  return handleWebhookVerification(c);
 });
 
 app.post('/api/webhook', async (c) => {
   const services = c.get('services');
-  const webhookApp = createWebhookRoutes(services.whatsapp);
-  return webhookApp.fetch(c.req.raw, c.env);
+  return handleIncomingWebhookMessage(c, services.whatsapp);
 });
 
 // User routes

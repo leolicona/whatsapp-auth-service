@@ -4,7 +4,7 @@ import type { WhatsAppMessage } from '../types';
 export class WhatsAppService {
   private apiToken: string;
   private phoneNumberId: string;
-  private apiVersion = 'v17.0';
+  private apiVersion = 'v23.0';
   private baseUrl = 'https://graph.facebook.com';
 
   constructor(apiToken: string, phoneNumberId: string) {

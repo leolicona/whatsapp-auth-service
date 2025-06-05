@@ -74,3 +74,11 @@ export interface Env {
   JWT_SECRET: string;
   FRONTEND_URL: string;
 }
+
+export type Variables = {
+  services: {
+    whatsapp: any; 
+    user: any;     
+    auth: any;     
+  }
+};
