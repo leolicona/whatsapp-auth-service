@@ -73,6 +73,12 @@ export interface Env {
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: string;
   JWT_SECRET: string;
   FRONTEND_URL: string;
+  MOCK_WHATSAPP_API?: string;
+}
+
+export interface AuthInfo {
+  userId: string;
+  sessionId: string;
 }
 
 export type Variables = {
@@ -80,5 +86,6 @@ export type Variables = {
     whatsapp: any; 
     user: any;     
     auth: any;     
-  }
+  };
+  authInfo?: AuthInfo; // Optional authInfo property
 };

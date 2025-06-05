@@ -1,53 +1,72 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { AuthService } from '../services/auth';
 import { validatePhone, validateToken } from '../middleware/validation';
 import { authMiddleware } from '../middleware/auth';
-import { Env } from '../types';
+import { Env, Variables } from '../types';
 
-export function createAuthRoutes(authService: AuthService) {
-  const app = new Hono<{ Bindings: Env }>();
-
-  // Initiate login by sending WhatsApp message
-  app.post('/login', validatePhone, async (c) => {
-    const { phone_number } = await c.req.json();
-    const success = await authService.initiateLogin(phone_number);
-    
-    if (success) {
-      return c.json({ success: true, message: 'Login link sent via WhatsApp' });
-    } else {
-      return c.json({ success: false, error: 'Failed to send login link' }, 500);
-    }
-  });
-
-  // Verify login token and issue auth token
-  app.post('/verify', validateToken, async (c) => {
-    const { token } = await c.req.json();
-    const result = await authService.verifyLogin(token);
-    
-    if (result) {
-      return c.json({ success: true, auth_token: result.authToken });
-    } else {
-      return c.json({ success: false, error: 'Invalid or expired token' }, 400);
-    }
-  });
-
-  // Logout (requires authentication)
-  app.post('/logout', authMiddleware(authService), async (c) => {
-    const authInfo = c.get('authInfo');
-    const success = await authService.logout(authInfo.sessionId);
-    
-    if (success) {
-      return c.json({ success: true, message: 'Logged out successfully' });
-    } else {
-      return c.json({ success: false, error: 'Logout failed' }, 500);
-    }
-  });
-
-  // Validate token (for client-side validation)
-  app.get('/validate', authMiddleware(authService), async (c) => {
-    const authInfo = c.get('authInfo');
-    return c.json({ valid: true, userId: authInfo.userId });
-  });
-
-  return app;
+export async function handleLogin(c: Context<{
+  Bindings: Env;
+  Variables: Variables;
+}>, authService: AuthService) {
+  const { phone_number } = await c.req.json();
+  const success = await authService.initiateLogin(phone_number);
+  
+  if (success) {
+    return c.json({ success: true, message: 'Login link sent via WhatsApp' });
+  } else {
+    return c.json({ success: false, error: 'Failed to send login link' }, 500);
+  }
 }
+
+export async function handleVerify(c: Context<{
+  Bindings: Env;
+  Variables: Variables;
+}>, authService: AuthService) {
+  const { token } = await c.req.json();
+  const result = await authService.verifyLogin(token);
+  
+  if (result) {
+    return c.json({ success: true, auth_token: result.authToken });
+  } else {
+    return c.json({ success: false, error: 'Invalid or expired token' }, 400);
+  }
+}
+
+export async function handleLogout(c: Context<{
+  Bindings: Env;
+  Variables: Variables;
+}>) {
+  const services = c.get('services');
+  const authService = services.auth;
+  const authInfo = c.get('authInfo'); // authInfo is set by authMiddleware
+  if (!authInfo) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const success = await authService.logout(authInfo.sessionId);
+  
+  if (success) {
+    return c.json({ success: true, message: 'Logged out successfully' });
+  } else {
+    return c.json({ success: false, error: 'Logout failed' }, 500);
+  }
+}
+
+export async function handleValidate(c: Context<{
+  Bindings: Env;
+  Variables: Variables;
+}>) {
+  const services = c.get('services');
+  const authService = services.auth;
+  const authInfo = c.get('authInfo'); // authInfo is set by authMiddleware
+  if (!authInfo) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  return c.json({ valid: true, userId: authInfo.userId });
+}
+
+// createAuthRoutes is no longer needed as routes are handled directly in index.ts
+// export function createAuthRoutes(authService: AuthService) {
+//   const app = new Hono<{ Bindings: Env }>();
+//   // ... existing routes ...
+//   return app;
+// }

@@ -4,19 +4,12 @@ import { logger } from 'hono/logger';
 import { WhatsAppService } from './services/whatsapp';
 import { UserService } from './services/user';
 import { AuthService } from './services/auth';
-import { createAuthRoutes } from './routes/auth';
-import { createWebhookRoutes, handleWebhookVerification, handleIncomingWebhookMessage } from './routes/webhook';
-import { createUserRoutes } from './routes/user';
-import { Env } from './types';
+import { handleLogin, handleVerify, handleLogout, handleValidate } from './routes/auth';
+import { handleWebhookVerification, handleIncomingWebhookMessage } from './routes/webhook';
+import { handleGetUserMe, handlePutUserMe } from './routes/user';
+import { Env, Variables } from './types';
 import { CONFIG, initializeConfig } from './config';
-
-type Variables = {
-  services: {
-    whatsapp: WhatsAppService;
-    user: UserService;
-    auth: AuthService;
-  }
-};
+import { authMiddleware } from './middleware/auth';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -49,26 +42,22 @@ app.use('*', async (c, next) => {
 // Auth routes
 app.post('/api/auth/login', async (c) => {
   const services = c.get('services');
-  const authApp = createAuthRoutes(services.auth);
-  return authApp.fetch(c.req.raw, c.env);
+  return handleLogin(c, services.auth);
 });
 
 app.post('/api/auth/verify', async (c) => {
   const services = c.get('services');
-  const authApp = createAuthRoutes(services.auth);
-  return authApp.fetch(c.req.raw, c.env);
+  return handleVerify(c, services.auth);
 });
 
-app.post('/api/auth/logout', async (c) => {
+app.post('/api/auth/logout', authMiddleware, async (c) => {
   const services = c.get('services');
-  const authApp = createAuthRoutes(services.auth);
-  return authApp.fetch(c.req.raw, c.env);
+  return handleLogout(c);
 });
 
-app.get('/api/auth/validate', async (c) => {
+app.get('/api/auth/validate', authMiddleware, async (c) => {
   const services = c.get('services');
-  const authApp = createAuthRoutes(services.auth);
-  return authApp.fetch(c.req.raw, c.env);
+  return handleValidate(c);
 });
 
 // Webhook routes
@@ -82,16 +71,14 @@ app.post('/api/webhook', async (c) => {
 });
 
 // User routes
-app.get('/api/user/me', async (c) => {
+app.get('/api/user/me', authMiddleware, async (c) => {
   const services = c.get('services');
-  const userApp = createUserRoutes(services.user, services.auth);
-  return userApp.fetch(c.req.raw, c.env);
+  return handleGetUserMe(c, services.user);
 });
 
-app.put('/api/user/me', async (c) => {
+app.put('/api/user/me', authMiddleware, async (c) => {
   const services = c.get('services');
-  const userApp = createUserRoutes(services.user, services.auth);
-  return userApp.fetch(c.req.raw, c.env);
+  return handlePutUserMe(c, services.user);
 });
 
 // Root route

@@ -33,6 +33,12 @@ export class WhatsAppService {
   }
 
   async sendLoginLink(to: string, loginToken: string): Promise<any> {
+    // If mocking is enabled, just log and return success
+    if (CONFIG.MOCK.WHATSAPP_API) {
+      console.log(`[MOCK] Sending login link to ${to} with token: ${loginToken}`);
+      return { success: true, mock: true };
+    }
+
     const loginUrl = `${CONFIG.APP.FRONTEND_URL}/auth/verify?token=${loginToken}`;
     
     const message: WhatsAppMessage = {

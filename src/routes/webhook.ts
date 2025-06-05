@@ -6,6 +6,7 @@ import { normalizePhoneNumber } from '../utils/phone';
 
 export function handleWebhookVerification(c: Context<{
   Bindings: Env;
+  Variables: Variables;
 }>) {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
@@ -24,6 +25,7 @@ export function handleWebhookVerification(c: Context<{
 
 export async function handleIncomingWebhookMessage(c: Context<{
   Bindings: Env;
+  Variables: Variables;
 }>, whatsappService: WhatsAppService) {
   const payload = await c.req.json<WhatsAppWebhookPayload>();
   console.log("payload", payload);  
