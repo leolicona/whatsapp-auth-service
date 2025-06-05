@@ -9,10 +9,10 @@ export async function handleLogin(c: Context<{
   Variables: Variables;
 }>, authService: AuthService) {
   const { phone_number } = await c.req.json();
-  const success = await authService.initiateLogin(phone_number);
+  const result = await authService.initiateLogin(phone_number);
   
-  if (success) {
-    return c.json({ success: true, message: 'Login link sent via WhatsApp' });
+  if (result.success) {
+    return c.json({ success: true, message: 'Login link sent via WhatsApp', sessionId: result.sessionId });
   } else {
     return c.json({ success: false, error: 'Failed to send login link' }, 500);
   }
