@@ -60,16 +60,41 @@ export class UserService {
     const expiresAt = now + expiresIn;
     
     await this.db
-      .prepare('INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-      .bind(sessionId, userId, now, expiresAt)
+      .prepare('INSERT INTO sessions (id, user_id, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?)')
+      .bind(sessionId, userId, now, expiresAt, 'pending')
       .run();
     
     return {
       id: sessionId,
       user_id: userId,
       created_at: now,
-      expires_at: expiresAt
+      expires_at: expiresAt,
+      status: 'pending'
     };
+  }
+
+  async updateSessionTokens(sessionId: string, authToken: string, refreshToken: string): Promise<void> {
+    await this.db
+      .prepare('UPDATE sessions SET auth_token = ?, refresh_token = ?, status = ? WHERE id = ?')
+      .bind(authToken, refreshToken, 'ready', sessionId)
+      .run();
+  }
+
+  async getSessionTokens(sessionId: string): Promise<{ authToken: string; refreshToken: string } | null> {
+    const session = await this.db
+      .prepare('SELECT auth_token, refresh_token FROM sessions WHERE id = ? AND status = ?')
+      .bind(sessionId, 'ready')
+      .first<Session>();
+
+    if (session && session.auth_token && session.refresh_token) {
+      // Mark as completed after retrieval
+      await this.db
+        .prepare('UPDATE sessions SET status = ? WHERE id = ?')
+        .bind('completed', sessionId)
+        .run();
+      return { authToken: session.auth_token, refreshToken: session.refresh_token };
+    }
+    return null;
   }
 
   async findSessionById(sessionId: string): Promise<Session | null> {
@@ -78,6 +103,15 @@ export class UserService {
       .bind(sessionId, Math.floor(Date.now() / 1000))
       .first<Session>();
     
+    return result || null;
+  }
+
+  async findSessionByUserId(userId: string): Promise<Session | null> {
+    const result = await this.db
+      .prepare('SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1')
+      .bind(userId, Math.floor(Date.now() / 1000))
+      .first<Session>();
+
     return result || null;
   }
 

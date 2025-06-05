@@ -11,6 +11,9 @@ export interface Session {
   user_id: string;
   created_at: number;
   expires_at: number;
+  auth_token?: string;
+  refresh_token?: string;
+  status: 'pending' | 'ready' | 'completed';
 }
 
 export interface WhatsAppMessage {
@@ -27,6 +30,19 @@ export interface WhatsAppMessage {
       code: string;
     };
     components: any[];
+  };
+  interactive?: {
+    type: 'button';
+    body: {
+      text: string;
+    };
+    action: {
+      buttons: Array<{
+        type: 'reply';
+        title: string;
+        id: string;
+      }>;
+    };
   };
 }
 
@@ -74,6 +90,8 @@ export interface Env {
   JWT_SECRET: string;
   FRONTEND_URL: string;
   MOCK_WHATSAPP_API?: string;
+  WEBHOOK_PROCESSOR_DO: DurableObjectNamespace;
+  AUTH_SESSION_DO: DurableObjectNamespace;
 }
 
 export interface AuthInfo {

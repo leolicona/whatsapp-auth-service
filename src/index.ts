@@ -4,12 +4,14 @@ import { logger } from 'hono/logger';
 import { WhatsAppService } from './services/whatsapp';
 import { UserService } from './services/user';
 import { AuthService } from './services/auth';
-import { handleLogin, handleVerify, handleLogout, handleValidate } from './routes/auth';
-import { handleWebhookVerification, handleIncomingWebhookMessage } from './routes/webhook';
+import { handleLogin, handleLogout, handleValidate, handlePollTokens } from './routes/auth';
+import { handleWebhookVerification } from './routes/webhook';
 import { handleGetUserMe, handlePutUserMe } from './routes/user';
 import { Env, Variables } from './types';
 import { CONFIG, initializeConfig } from './config';
 import { authMiddleware } from './middleware/auth';
+import { WebhookProcessorDO } from './do/WebhookProcessorDO';
+import { AuthSessionDO } from './do/AuthSessionDO';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,11 +47,6 @@ app.post('/api/auth/login', async (c) => {
   return handleLogin(c, services.auth);
 });
 
-app.post('/api/auth/verify', async (c) => {
-  const services = c.get('services');
-  return handleVerify(c, services.auth);
-});
-
 app.post('/api/auth/logout', authMiddleware, async (c) => {
   const services = c.get('services');
   return handleLogout(c);
@@ -60,14 +57,41 @@ app.get('/api/auth/validate', authMiddleware, async (c) => {
   return handleValidate(c);
 });
 
+// WebSocket endpoint for authentication
+app.get('/api/auth/ws', async (c) => {
+  const sessionId = c.req.query('sessionId');
+  if (!sessionId) {
+    return c.json({ error: 'Session ID is required' }, 400);
+  }
+
+  const id = c.env.AUTH_SESSION_DO.idFromString(sessionId);
+  const stub = c.env.AUTH_SESSION_DO.get(id);
+
+  // Forward the WebSocket request to the Durable Object
+  // The DO will handle the WebSocket handshake
+  return stub.fetch(c.req.url, c.req.raw);
+});
+
 // Webhook routes
 app.get('/api/webhook', async (c) => {
   return handleWebhookVerification(c);
 });
 
 app.post('/api/webhook', async (c) => {
-  const services = c.get('services');
-  return handleIncomingWebhookMessage(c, services.whatsapp);
+  const messageId = c.req.header('X-WhatsApp-Message-Id') || `webhook-${Date.now()}`;
+  const id = c.env.WEBHOOK_PROCESSOR_DO.idFromName(messageId);
+  const stub = c.env.WEBHOOK_PROCESSOR_DO.get(id);
+  
+  // Create a new Request object to forward to the Durable Object
+  const newRequest = new Request(c.req.url, {
+    method: c.req.method,
+    headers: c.req.raw.headers,
+    body: c.req.raw.body ? await c.req.raw.arrayBuffer() : null, // Read body as arrayBuffer
+    redirect: c.req.raw.redirect,
+    cf: c.req.raw.cf, // Preserve cf properties
+  });
+
+  return stub.fetch(newRequest);
 });
 
 // User routes
@@ -83,5 +107,7 @@ app.put('/api/user/me', authMiddleware, async (c) => {
 
 // Root route
 app.get('/', (c) => c.json({ status: 'WhatsApp OTPless Auth Service is running' }));
+
+export { WebhookProcessorDO, AuthSessionDO };
 
 export default app;

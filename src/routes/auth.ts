@@ -64,6 +64,27 @@ export async function handleValidate(c: Context<{
   return c.json({ valid: true, userId: authInfo.userId });
 }
 
+export async function handlePollTokens(c: Context<{
+  Bindings: Env;
+  Variables: Variables;
+}>) {
+  const services = c.get('services');
+  const userService = services.user;
+  const sessionId = c.req.query('sessionId');
+
+  if (!sessionId) {
+    return c.json({ error: 'Session ID is required' }, 400);
+  }
+
+  const tokens = await userService.getSessionTokens(sessionId);
+
+  if (tokens) {
+    return c.json({ success: true, ...tokens });
+  } else {
+    return c.json({ success: false, message: 'Tokens not ready or session expired.' }, 202); // 202 Accepted for polling
+  }
+}
+
 // createAuthRoutes is no longer needed as routes are handled directly in index.ts
 // export function createAuthRoutes(authService: AuthService) {
 //   const app = new Hono<{ Bindings: Env }>();

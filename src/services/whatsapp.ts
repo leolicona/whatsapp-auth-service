@@ -32,6 +32,43 @@ export class WhatsAppService {
     return await response.json();
   }
 
+  async sendInteractiveButtonMessage(
+    to: string,
+    buttonText: string,
+    buttonPayload: string,
+    bodyText: string
+  ): Promise<any> {
+    // If mocking is enabled, just log and return success
+    if (CONFIG.MOCK.WHATSAPP_API) {
+      console.log(`[MOCK] Sending interactive button message to ${to} with payload: ${buttonPayload}`);
+      return { success: true, mock: true };
+    }
+
+    const message: WhatsAppMessage = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: {
+          text: bodyText,
+        },
+        action: {
+          buttons: [
+            {
+              type: 'reply',
+              title: buttonText,
+              id: buttonPayload,
+            },
+          ],
+        },
+      },
+    };
+
+    return this.sendMessage(to, message);
+  }
+
   async sendLoginLink(to: string, loginToken: string): Promise<any> {
     // If mocking is enabled, just log and return success
     if (CONFIG.MOCK.WHATSAPP_API) {
