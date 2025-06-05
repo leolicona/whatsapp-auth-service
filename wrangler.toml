@@ -1,0 +1,17 @@
+name = "whatsapp-otpless-auth"
+main = "src/index.ts"
+compatibility_date = "2023-10-16"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "whatsapp-auth-db"
+database_id = "3e0dd492-4db4-48ef-bca6-2d1d40ddf69f"
+
+[vars]
+FRONTEND_URL = "https://example.com"
+
+# Secrets that should be set using wrangler secret commands:
+# - WHATSAPP_API_TOKEN
+# - WHATSAPP_PHONE_NUMBER_ID
+# - WHATSAPP_WEBHOOK_VERIFY_TOKEN
+# - JWT_SECRET

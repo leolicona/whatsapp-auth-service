@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp-otpless-auth",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute whatsapp-auth-db --file=migrations/init.sql"
+  },
+  "keywords": ["whatsapp", "auth", "otpless", "cloudflare", "workers", "hono"],
+  "author": "",
+  "license": "MIT",
+  "description": "WhatsApp OTPless Authentication Service",
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20230904.0",
+    "@hono/zod-validator": "^0.1.8",
+    "hono": "^3.6.3",
+    "jose": "^4.14.6",
+    "wrangler": "^3.10.1",
+    "zod": "^3.22.2"
+  }
+}
