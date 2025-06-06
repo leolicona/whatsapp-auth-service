@@ -34,6 +34,14 @@ export interface RefreshToken {
   revoked_at?: number;
 }
 
+export interface TokenPayload {
+  token: string;
+  isNewUser: boolean;
+  phoneNumber: string;
+  timestamp: number;
+  expiresAt: number;
+}
+
 export interface WhatsAppMessage {
   messaging_product: string;
   recipient_type: string;

@@ -21,15 +21,22 @@ export class AuthService {
   }
 
   async initiateLogin(phoneNumber: string): Promise<{ success: boolean }> {
+    console.log(`[AuthService] Initiating login for phone: ${phoneNumber}`);
+    
     // Format phone number to E.164 format (required by WhatsApp)
     const formattedPhone = this.formatPhoneNumber(phoneNumber);
+    console.log(`[AuthService] Formatted phone number: ${formattedPhone}`);
     
     // Check if user exists (but don't create yet)
     const existingUser = await this.userService.findUserByPhone(formattedPhone);
     const isNewUser = !existingUser;
     
-    // Generate secure verification token
-    const { token: plainToken } = await this.verificationService.createVerificationToken(formattedPhone);
+    console.log(`[AuthService] User lookup result - isNewUser: ${isNewUser}, existingUser:`, existingUser);
+    
+    // Generate secure verification token with user status
+    const { token: encodedToken } = await this.verificationService.createVerificationToken(formattedPhone, isNewUser);
+    
+    console.log(`[AuthService] Generated encoded token length: ${encodedToken.length}`);
     
     // Select message content based on user existence
     const buttonText = isNewUser ? 'Sign Up' : 'Confirm Login';
@@ -37,37 +44,62 @@ export class AuthService {
       ? 'Hello!\n\nWe\'ve received a request to create a new account with this phone number.\n\nPlease press the button below in the next 10 minutes to confirm. If you haven\'t made this request, you can safely ignore this message.'
       : 'Welcome back!\n\nTap the button below to log in to your account. This link will expire in 10 minutes.';
 
-    // Send the interactive button message via WhatsApp with plain-text token
+    console.log(`[AuthService] Message content - buttonText: ${buttonText}, bodyText length: ${bodyText.length}`);
+
+    // Send the interactive button message via WhatsApp with encoded token
     try {
+      console.log(`[AuthService] Sending WhatsApp message to: ${formattedPhone}`);
+      
       await this.whatsappService.sendInteractiveButtonMessage(
         formattedPhone,
         buttonText,
-        plainToken, // Use plain-text token as button payload
+        encodedToken, // Use encoded token as button payload
         bodyText
       );
+      
+      console.log(`[AuthService] WhatsApp message sent successfully`);
       return { success: true };
     } catch (error) {
-      console.error('Failed to send WhatsApp interactive message:', error);
+      console.error('[AuthService] Failed to send WhatsApp interactive message:', error);
       return { success: false };
     }
   }
 
-  async verifyWebhookToken(phoneNumber: string, plainToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
+  async verifyWebhookToken(phoneNumber: string, encodedToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
+    console.log(`[AuthService] Verifying webhook token for phone: ${phoneNumber}, token length: ${encodedToken.length}`);
+    
     // Validate and consume the verification token
-    const isValidToken = await this.verificationService.validateAndConsumeToken(plainToken, phoneNumber);
-    if (!isValidToken) {
+    const tokenValidation = await this.verificationService.validateAndConsumeToken(encodedToken, phoneNumber);
+    if (!tokenValidation.isValid) {
+      console.log(`[AuthService] Token validation failed`);
       return null;
     }
 
-    // Create or retrieve user record
-    let user = await this.userService.findUserByPhone(phoneNumber);
-    if (!user) {
-      // Create new user
+    console.log(`[AuthService] Token validation successful, isNewUser: ${tokenValidation.isNewUser}`);
+
+    // Use the user status from the token to optimize user handling
+    let user;
+    if (tokenValidation.isNewUser) {
+      // Create new user (we know from token this is a new user)
+      console.log(`[AuthService] Creating new user for phone: ${phoneNumber}`);
       user = await this.userService.createUser(phoneNumber);
+      console.log(`[AuthService] New user created: ${user.id} for phone: ${phoneNumber}`);
     } else {
-      // Update last login for existing user
-      await this.userService.updateLastLogin(user.id);
+      // Retrieve existing user and update last login
+      console.log(`[AuthService] Looking up existing user for phone: ${phoneNumber}`);
+      user = await this.userService.findUserByPhone(phoneNumber);
+      if (!user) {
+        // Fallback: user might have been deleted between token creation and verification
+        console.warn(`[AuthService] User not found during login, creating new user for phone: ${phoneNumber}`);
+        user = await this.userService.createUser(phoneNumber);
+      } else {
+        console.log(`[AuthService] Updating last login for user: ${user.id}`);
+        await this.userService.updateLastLogin(user.id);
+        console.log(`[AuthService] Existing user logged in: ${user.id} for phone: ${phoneNumber}`);
+      }
     }
+
+    console.log(`[AuthService] Generating JWT tokens for user: ${user.id}`);
 
     // Generate JWT access token (short-lived)
     const accessToken = await createJWT({
@@ -77,6 +109,8 @@ export class AuthService {
 
     // Generate and store refresh token (long-lived)
     const { token: refreshToken } = await this.verificationService.createRefreshToken(user.id);
+
+    console.log(`[AuthService] Tokens generated successfully - accessToken length: ${accessToken.length}, refreshToken length: ${refreshToken.length}`);
 
     return { accessToken, refreshToken, userId: user.id };
   }
@@ -133,6 +167,59 @@ export class AuthService {
       console.error('Logout failed:', error);
       return false;
     }
+  }
+
+  async verifyLogin(token: string): Promise<{ authToken: string; refreshToken: string; userId: string } | null> {
+    console.log(`[AuthService] Verifying login with token length: ${token.length}`);
+    
+    // Extract phone number from token
+    const phoneNumber = await this.verificationService.getPhoneNumberFromToken(token);
+    if (!phoneNumber) {
+      console.log(`[AuthService] Failed to extract phone number from token`);
+      return null;
+    }
+
+    console.log(`[AuthService] Extracted phone number: ${phoneNumber}`);
+
+    const result = await this.verifyWebhookToken(phoneNumber, token);
+    if (result) {
+      console.log(`[AuthService] Login verification successful for user: ${result.userId}`);
+      return {
+        authToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        userId: result.userId
+      };
+    }
+    
+    console.log(`[AuthService] Login verification failed`);
+    return null;
+  }
+
+  async verifyLoginTokenOnly(token: string): Promise<{ phoneNumber: string; isNewUser: boolean; sessionId?: string } | null> {
+    console.log(`[AuthService] Verifying login token only, token length: ${token.length}`);
+    
+    // Extract phone number from token without consuming it
+    const phoneNumber = await this.verificationService.getPhoneNumberFromToken(token);
+    if (!phoneNumber) {
+      console.log(`[AuthService] Failed to extract phone number from token`);
+      return null;
+    }
+
+    console.log(`[AuthService] Extracted phone number: ${phoneNumber}`);
+
+    // Validate token without consuming it
+    const tokenValidation = await this.verificationService.validateTokenOnly(token, phoneNumber);
+    if (!tokenValidation.isValid) {
+      console.log(`[AuthService] Token validation failed`);
+      return null;
+    }
+
+    console.log(`[AuthService] Token validation successful, isNewUser: ${tokenValidation.isNewUser}`);
+
+    return {
+      phoneNumber,
+      isNewUser: tokenValidation.isNewUser || false
+    };
   }
 
   getUserService(): UserService {

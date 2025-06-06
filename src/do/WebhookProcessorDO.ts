@@ -27,30 +27,42 @@ export class WebhookProcessorDO {
 
   private async processWebhookPayload(payload: WhatsAppWebhookPayload): Promise<Response> {
     // Ensure this message hasn't been processed yet
+    console.log('[WebhookProcessor] Processing webhook payload');
+    
     const processed = await this.state.storage.get('processed');
     if (processed) {
-      console.log('Webhook payload already processed for this DO instance.');
+      console.log('[WebhookProcessor] Webhook payload already processed for this DO instance.');
       return new Response('Already processed', { status: 200 });
     }
 
-    console.log("WebhookProcessorDO payload", payload);  
+    console.log('[WebhookProcessor] Webhook payload:', JSON.stringify(payload, null, 2));  
+    
     // Process incoming messages
     if (payload.object === 'whatsapp_business_account') {
+      console.log(`[WebhookProcessor] Processing WhatsApp business account payload with ${payload.entry.length} entries`);
+      
       for (const entry of payload.entry) {
+        console.log(`[WebhookProcessor] Processing entry with ${entry.changes.length} changes`);
+        
         for (const change of entry.changes) {
           if (change.field === 'messages') {
             const value = change.value;
+            console.log(`[WebhookProcessor] Processing messages field:`, value);
               
             // Process incoming messages
             if (value.messages && value.messages.length > 0) {
+              console.log(`[WebhookProcessor] Found ${value.messages.length} messages to process`);
+              
               for (const message of value.messages) {
                 const from = message.from;
                 const normalizedFrom = normalizePhoneNumber(from);
+                
+                console.log(`[WebhookProcessor] Processing message from ${from} (normalized: ${normalizedFrom}), type: ${message.type}`);
 
                 // Handle text messages
                 if (message.type === 'text' && message.text) {
                   const text = message.text.body;
-                  console.log(`Received message from ${from}: ${text}. Normalized to: ${normalizedFrom}`);
+                  console.log(`[WebhookProcessor] Received text message from ${from}: ${text}`);
                     
                   // Auto-reply to incoming messages
                   const whatsappService = new WhatsAppService(this.env.WHATSAPP_API_TOKEN, this.env.WHATSAPP_PHONE_NUMBER_ID);
@@ -58,16 +70,19 @@ export class WebhookProcessorDO {
                     normalizedFrom,
                     'Thank you for your message. This is an automated login service. Please use the app to initiate login.'
                   );
+                  console.log(`[WebhookProcessor] Sent auto-reply to ${normalizedFrom}`);
                 }
                   
                 // Handle button clicks
                 if (message.type === 'button' && message.button) {
                   const buttonPayload = message.button.payload;
-                  console.log(`Received button click from ${from} with payload: ${buttonPayload}. Normalized from: ${normalizedFrom}`);
+                  console.log(`[WebhookProcessor] Received button click from ${from} with payload length: ${buttonPayload.length}`);
+                  console.log(`[WebhookProcessor] Button payload preview: ${buttonPayload.substring(0, 100)}...`);
 
                   const whatsappService = new WhatsAppService(this.env.WHATSAPP_API_TOKEN, this.env.WHATSAPP_PHONE_NUMBER_ID);
                   const userService = new UserService(this.env.DB);
-                  const authService = new AuthService(userService, whatsappService);
+                  const verificationService = new VerificationService(this.env.DB);
+                  const authService = new AuthService(userService, whatsappService, verificationService);
 
                   await this.handleAuthButtonPayload(
                     authService,
@@ -77,16 +92,20 @@ export class WebhookProcessorDO {
                   );
                 }
               }
+            } else {
+              console.log(`[WebhookProcessor] No messages found in this change`);
             }
+          } else {
+            console.log(`[WebhookProcessor] Skipping change with field: ${change.field}`);
           }
         }
       }
-        
-      await this.state.storage.put('processed', true);
-      return new Response('Processed', { status: 200 });
+    } else {
+      console.log(`[WebhookProcessor] Unexpected payload object type: ${payload.object}`);
     }
-      
-    return new Response('Invalid payload', { status: 400 });
+        
+    await this.state.storage.put('processed', true);
+    return new Response('Processed', { status: 200 });
   }
 
   private async handleAuthButtonPayload(
@@ -95,43 +114,48 @@ export class WebhookProcessorDO {
     phoneNumber: string,
     token: string
   ) {
+    console.log(`[WebhookProcessor] Handling auth button payload for phone: ${phoneNumber}, token length: ${token.length}`);
+    
     const result = await authService.verifyLogin(token);
   
     if (result) {
       const { authToken, refreshToken, userId } = result;
-      console.log(`User ${userId} authenticated. AuthToken: ${authToken}, RefreshToken: ${refreshToken}`);
+      console.log(`[WebhookProcessor] User ${userId} authenticated successfully`);
+      console.log(`[WebhookProcessor] AuthToken length: ${authToken.length}, RefreshToken length: ${refreshToken.length}`);
       
       // Instead of storing in DO, we will update the session in the DB for polling
       // If using WebSockets, this is where you'd push to the WebSocket connected to AuthSessionDO
       // const userSession = await authService.getUserService().findSessionByUserId(userId); // Need to get the current session ID
 
       // Find the sessionId from the loginToken payload (this was added in AuthService.initiateLogin)
+      console.log(`[WebhookProcessor] Verifying login token to extract session info`);
       const loginTokenPayload = await authService.verifyLoginTokenOnly(token); // Need a new method to just verify token without full login flow
 
       if (loginTokenPayload && loginTokenPayload.sessionId) {
+        console.log(`[WebhookProcessor] Found sessionId: ${loginTokenPayload.sessionId}`);
         const sessionId = loginTokenPayload.sessionId;
         const id = this.env.AUTH_SESSION_DO.idFromString(sessionId);
         const stub = this.env.AUTH_SESSION_DO.get(id);
         
+        console.log(`[WebhookProcessor] Sending tokens to AuthSessionDO`);
         // Call the DO to send tokens over WebSocket
         await stub.fetch(
           new Request(new URL('/send-tokens', 'http://do-stub').toString(), {
             method: 'POST',
             body: JSON.stringify({ authToken, refreshToken, userId }),
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' }
           })
         );
-        console.log(`Tokens sent to AuthSessionDO for session ${sessionId}.`);
+        console.log(`[WebhookProcessor] Tokens sent to AuthSessionDO successfully`);
       } else {
-        console.error('Session ID not found in login token payload.');
-        // This indicates a potential issue in the flow where session ID is not included in token
+        console.log(`[WebhookProcessor] No sessionId found in token payload, skipping WebSocket notification`);
       }
-
     } else {
-      console.log(`Failed to verify token for phone number: ${phoneNumber}`);
+      console.log(`[WebhookProcessor] Authentication failed for phone: ${phoneNumber}`);
+      // Handle authentication failure
       await whatsappService.sendTextMessage(
         phoneNumber,
-        'Authentication failed. Please try again.'
+        'Authentication failed. Please try again or contact support if the issue persists.'
       );
     }
   }
