@@ -4,7 +4,7 @@ import { logger } from 'hono/logger';
 import { WhatsAppService } from './services/whatsapp';
 import { UserService } from './services/user';
 import { AuthService } from './services/auth';
-import { handleLogin, handleLogout, handleValidate, handlePollTokens } from './routes/auth';
+import { handleLogin, handleLogout, handleValidate } from './routes/auth';
 import { handleWebhookVerification } from './routes/webhook';
 import { handleGetUserMe, handlePutUserMe } from './routes/user';
 import { Env, Variables } from './types';
@@ -12,7 +12,7 @@ import { CONFIG, initializeConfig } from './config';
 import { authMiddleware } from './middleware/auth';
 import { WebhookProcessorDO } from './do/WebhookProcessorDO';
 import { AuthSessionDO } from './do/AuthSessionDO';
-import { validatePhone } from './middleware/validation';
+import { createJsonValidator, phoneSchema } from './middleware/validation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -43,18 +43,17 @@ app.use('*', async (c, next) => {
 });
 
 // Auth routes
-app.post('/api/auth/login', validatePhone, async (c) => {
+app.post('/api/auth/login', createJsonValidator(phoneSchema), async (c) => {
   const services = c.get('services');
-  return handleLogin(c, services.auth);
+  const { phone_number } = c.req.valid('json');
+  return handleLogin(c, services.auth, phone_number);
 });
 
 app.post('/api/auth/logout', authMiddleware, async (c) => {
-  const services = c.get('services');
   return handleLogout(c);
 });
 
 app.get('/api/auth/validate', authMiddleware, async (c) => {
-  const services = c.get('services');
   return handleValidate(c);
 });
 

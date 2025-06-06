@@ -1,15 +1,14 @@
 import { Hono, Context } from 'hono';
 import { AuthService } from '../services/auth';
-import { validatePhone, validateToken } from '../middleware/validation';
+import { phoneSchema } from '../middleware/validation';
 import { authMiddleware } from '../middleware/auth';
 import { Env, Variables } from '../types';
+import { z } from 'zod';
 
 export async function handleLogin(c: Context<{
   Bindings: Env;
   Variables: Variables;
-}>, authService: AuthService) {
-  const body = c.req.valid('json');
-  const phone_number = body.phone_number;
+}>, authService: AuthService, phone_number: string) {
 
   const result = await authService.initiateLogin(phone_number);
   
@@ -86,10 +85,3 @@ export async function handlePollTokens(c: Context<{
     return c.json({ success: false, message: 'Tokens not ready or session expired.' }, 202); // 202 Accepted for polling
   }
 }
-
-// createAuthRoutes is no longer needed as routes are handled directly in index.ts
-// export function createAuthRoutes(authService: AuthService) {
-//   const app = new Hono<{ Bindings: Env }>();
-//   // ... existing routes ...
-//   return app;
-// }
