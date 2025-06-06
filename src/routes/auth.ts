@@ -8,7 +8,9 @@ export async function handleLogin(c: Context<{
   Bindings: Env;
   Variables: Variables;
 }>, authService: AuthService) {
-  const { phone_number } = await c.req.json();
+  const body = c.req.valid('json');
+  const phone_number = body.phone_number;
+
   const result = await authService.initiateLogin(phone_number);
   
   if (result.success) {

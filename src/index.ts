@@ -12,6 +12,7 @@ import { CONFIG, initializeConfig } from './config';
 import { authMiddleware } from './middleware/auth';
 import { WebhookProcessorDO } from './do/WebhookProcessorDO';
 import { AuthSessionDO } from './do/AuthSessionDO';
+import { validatePhone } from './middleware/validation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -42,7 +43,7 @@ app.use('*', async (c, next) => {
 });
 
 // Auth routes
-app.post('/api/auth/login', async (c) => {
+app.post('/api/auth/login', validatePhone, async (c) => {
   const services = c.get('services');
   return handleLogin(c, services.auth);
 });
