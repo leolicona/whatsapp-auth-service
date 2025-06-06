@@ -17,7 +17,7 @@ export class WebhookProcessorDO {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    if (pathname === '/' && request.method === 'POST') {
+    if (pathname === '/api/webhook' && request.method === 'POST') {
       const payload: WhatsAppWebhookPayload = await request.json();
       return this.processWebhookPayload(payload);
     }

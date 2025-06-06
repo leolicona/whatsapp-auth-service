@@ -39,8 +39,10 @@ export interface WhatsAppMessage {
     action: {
       buttons: Array<{
         type: 'reply';
-        title: string;
-        id: string;
+        reply: {
+          title: string;
+          id: string;
+        };
       }>;
     };
   };

@@ -56,6 +56,7 @@ export class AuthService {
         loginToken,
         bodyText
       );
+      // await this.whatsappService.sendHelloWorldMessage(formattedPhone);
       return { success: true, sessionId: sessionId };
     } catch (error) {
       console.error('Failed to send WhatsApp interactive message:', error);

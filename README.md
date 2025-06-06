@@ -32,19 +32,11 @@ npm install
 4. Generate and note down your WhatsApp API token
 5. Set up webhook verification and subscribe to relevant events
 
-### 3. Create a WhatsApp Message Template
+### 3. Create a WhatsApp Interactive Button Template
 
-Create a WhatsApp message template in the Meta Business Manager:
+Create a WhatsApp interactive button template in the Meta Business Manager. This project dynamically sets the button text and body content based on whether a user is new or existing. Therefore, you will need a template that supports interactive buttons.
 
-1. Go to your WhatsApp Business Account in Meta Business Manager
-2. Navigate to Message Templates
-3. Create a new template named "login_link" with the following content:
-
-```
-Here's your login link: {{1}}
-
-This link will expire in 15 minutes. Do not share this link with anyone.
-```
+While the specific template name might vary depending on your Meta setup, ensure it's configured to accept dynamic content for the button (payload) and the body text. For example, you might have a template with a call-to-action button.
 
 ### 4. Set up Cloudflare D1 Database
 
@@ -91,7 +83,7 @@ npx wrangler deploy
 
 ### Authentication
 
-- `POST /api/auth/login` - Initiate login by sending WhatsApp message
+- `POST /api/auth/login` - Initiate login by sending a WhatsApp interactive message with a login/registration confirmation button.
 - `POST /api/auth/verify` - Verify login token and issue auth token
 - `POST /api/auth/logout` - Logout (requires authentication)
 - `GET /api/auth/validate` - Validate token (for client-side validation)

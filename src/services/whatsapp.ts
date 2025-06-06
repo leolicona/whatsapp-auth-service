@@ -58,8 +58,10 @@ export class WhatsAppService {
           buttons: [
             {
               type: 'reply',
-              title: buttonText,
-              id: buttonPayload,
+              reply: {
+                id: buttonPayload,
+                title: buttonText,
+              },
             },
           ],
         },
@@ -99,6 +101,29 @@ export class WhatsAppService {
             ]
           }
         ]
+      }
+    };
+
+    return this.sendMessage(to, message);
+  }
+
+  async sendHelloWorldMessage(to: string): Promise<any> {
+    if (CONFIG.MOCK.WHATSAPP_API) {
+      console.log(`[MOCK] Sending hello_world message to ${to}`);
+      return { success: true, mock: true };
+    }
+
+    const message: WhatsAppMessage = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'template',
+      template: {
+        name: 'hello_world',
+        language: {
+          code: 'en_US'
+        },
+        components: []
       }
     };
 

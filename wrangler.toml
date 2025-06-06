@@ -9,6 +9,7 @@ database_id = "3e0dd492-4db4-48ef-bca6-2d1d40ddf69f"
 
 [vars]
 FRONTEND_URL = "https://example.com"
+MOCK_WHATSAPP_API = "false"
 
 # Durable Objects
 [durable_objects]
