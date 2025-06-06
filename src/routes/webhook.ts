@@ -1,5 +1,4 @@
 import { Context } from 'hono';
-import { WhatsAppService } from '../services/whatsapp';
 import { CONFIG } from '../config';
 import { Env, WhatsAppWebhookPayload, Variables } from '../types';
 import { normalizePhoneNumber } from '../utils/phone';
@@ -39,7 +38,7 @@ export async function handleIncomingWebhookMessage(c: Context<{
 
     const body = await c.req.text();
     const expectedSignature = 'sha256=' + crypto
-      .createHmac('sha256', CONFIG.WHATSAPP.APP_SECRET)
+      .createHmac('sha256', CONFIG.WHATSAPP.WEBHOOK_VERIFY_TOKEN)
       .update(body)
       .digest('hex');
 
@@ -78,8 +77,8 @@ export async function handleIncomingWebhookMessage(c: Context<{
                 }
                   
                 // Handle interactive button responses (new secure flow)
-                if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
-                  const buttonId = message.interactive.button_reply.id;
+                if (message.type === 'interactive' && (message as any).interactive?.type === 'button_reply') {
+                  const buttonId = (message as any).interactive.button_reply.id;
                   console.log(`Received button click from ${from} with token: ${buttonId}. Normalized from: ${normalizedFrom}`);
                     
                   // Process verification token
@@ -124,7 +123,7 @@ async function handleVerificationToken(
     const result = await authService.verifyWebhookToken(phoneNumber, token);
     
     if (result) {
-      const { accessToken, refreshToken, userId } = result;
+      const { userId } = result;
       console.log(`User ${userId} authenticated successfully for ${phoneNumber}`);
       
       // Log token info (first 20 chars for security)

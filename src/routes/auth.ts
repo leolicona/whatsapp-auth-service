@@ -1,9 +1,6 @@
 import { Context } from 'hono';
 import { AuthService } from '../services/auth';
-import { phoneSchema } from '../middleware/validation';
-import { authMiddleware } from '../middleware/auth';
 import { Env, Variables } from '../types';
-import { z } from 'zod';
 
 export async function handleInitiate(c: Context<{
   Bindings: Env;

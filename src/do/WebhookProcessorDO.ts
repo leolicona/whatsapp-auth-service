@@ -1,7 +1,8 @@
-import { Env, WhatsAppWebhookPayload, Variables } from '../types';
+import { Env, WhatsAppWebhookPayload } from '../types';
 import { AuthService } from '../services/auth';
 import { UserService } from '../services/user';
 import { WhatsAppService } from '../services/whatsapp';
+import { VerificationService } from '../services/verification';
 import { normalizePhoneNumber } from '../utils/phone';
 
 export class WebhookProcessorDO {
@@ -73,9 +74,9 @@ export class WebhookProcessorDO {
                   console.log(`[WebhookProcessor] Sent auto-reply to ${normalizedFrom}`);
                 }
                   
-                // Handle button clicks
-                if (message.type === 'button' && message.button) {
-                  const buttonPayload = message.button.payload;
+                // Handle interactive messages (button clicks)
+                if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
+                  const buttonPayload = message.interactive.button_reply.id;
                   console.log(`[WebhookProcessor] Received button click from ${from} with payload length: ${buttonPayload.length}`);
                   console.log(`[WebhookProcessor] Button payload preview: ${buttonPayload.substring(0, 100)}...`);
 
