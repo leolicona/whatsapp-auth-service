@@ -4,7 +4,8 @@ import { logger } from 'hono/logger';
 import { WhatsAppService } from './services/whatsapp';
 import { UserService } from './services/user';
 import { AuthService } from './services/auth';
-import { handleLogin, handleLogout, handleValidate } from './routes/auth';
+import { VerificationService } from './services/verification';
+import { handleInitiate, handleRefreshToken, handleLogout, handleValidate } from './routes/auth';
 import { handleWebhookVerification } from './routes/webhook';
 import { handleGetUserMe, handlePutUserMe } from './routes/user';
 import { Env, Variables } from './types';
@@ -31,30 +32,39 @@ app.use('*', async (c, next) => {
   );
   
   const userService = new UserService(c.env.DB);
-  const authService = new AuthService(userService, whatsappService);
+  const verificationService = new VerificationService(c.env.DB);
+  const authService = new AuthService(userService, whatsappService, verificationService);
   
   c.set('services', {
     whatsapp: whatsappService,
     user: userService,
-    auth: authService
+    auth: authService,
+    verification: verificationService
   });
   
   await next();
 });
 
 // Auth routes
-app.post('/api/auth/login', createJsonValidator(phoneSchema), async (c) => {
+app.post('/api/auth/initiate', createJsonValidator(phoneSchema), async (c) => {
   const services = c.get('services');
   const { phone_number } = c.req.valid('json');
-  return handleLogin(c, services.auth, phone_number);
+  return handleInitiate(c, services.auth, phone_number);
 });
 
-app.post('/api/auth/logout', authMiddleware, async (c) => {
-  return handleLogout(c);
+app.post('/api/auth/refresh', async (c) => {
+  const services = c.get('services');
+  return handleRefreshToken(c, services.auth);
 });
 
-app.get('/api/auth/validate', authMiddleware, async (c) => {
-  return handleValidate(c);
+app.post('/api/auth/logout', async (c) => {
+  const services = c.get('services');
+  return handleLogout(c, services.auth);
+});
+
+app.get('/api/auth/validate', async (c) => {
+  const services = c.get('services');
+  return handleValidate(c, services.auth);
 });
 
 // WebSocket endpoint for authentication

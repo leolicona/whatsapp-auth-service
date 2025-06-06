@@ -1,9 +1,10 @@
-import { Hono, Context } from 'hono';
+import { Context } from 'hono';
 import { WhatsAppService } from '../services/whatsapp';
 import { CONFIG } from '../config';
 import { Env, WhatsAppWebhookPayload, Variables } from '../types';
 import { normalizePhoneNumber } from '../utils/phone';
 import { AuthService } from '../services/auth';
+import crypto from 'node:crypto';
 
 export function handleWebhookVerification(c: Context<{
   Bindings: Env;
@@ -28,86 +29,128 @@ export async function handleIncomingWebhookMessage(c: Context<{
   Bindings: Env;
   Variables: Variables;
 }>, services: Variables['services']) {
-  const payload = await c.req.json<WhatsAppWebhookPayload>();
-  console.log("payload", payload);  
-  // Process incoming messages
-  if (payload.object === 'whatsapp_business_account') {
-    for (const entry of payload.entry) {
-      for (const change of entry.changes) {
-        if (change.field === 'messages') {
-          const value = change.value;
-            
-          // Process incoming messages
-          if (value.messages && value.messages.length > 0) {
-            for (const message of value.messages) {
-              const from = message.from;
-                
-              const normalizedFrom = normalizePhoneNumber(from);
+  try {
+    // Verify webhook signature
+    const signature = c.req.header('X-Hub-Signature-256');
+    if (!signature) {
+      console.log('Missing signature header');
+      return c.text('Forbidden', 403);
+    }
 
-              // Handle text messages
-              if (message.type === 'text' && message.text) {
-                const text = message.text.body;
-                console.log(`Received message from ${from}: ${text}. Normalized to: ${normalizedFrom}`);
+    const body = await c.req.text();
+    const expectedSignature = 'sha256=' + crypto
+      .createHmac('sha256', CONFIG.WHATSAPP.APP_SECRET)
+      .update(body)
+      .digest('hex');
+
+    if (signature !== expectedSignature) {
+      console.log('Invalid signature');
+      return c.text('Forbidden', 403);
+    }
+
+    // Parse webhook payload
+    const payload: WhatsAppWebhookPayload = JSON.parse(body);
+    console.log("payload", payload);
+    
+    // Process incoming messages
+    if (payload.object === 'whatsapp_business_account') {
+      for (const entry of payload.entry) {
+        for (const change of entry.changes) {
+          if (change.field === 'messages') {
+            const value = change.value;
+              
+            // Process incoming messages
+            if (value.messages && value.messages.length > 0) {
+              for (const message of value.messages) {
+                const from = message.from;
+                const normalizedFrom = normalizePhoneNumber(from);
+
+                // Handle text messages
+                if (message.type === 'text' && message.text) {
+                  const text = message.text.body;
+                  console.log(`Received message from ${from}: ${text}. Normalized to: ${normalizedFrom}`);
+                    
+                  // Auto-reply to incoming messages
+                  await services.whatsapp.sendTextMessage(
+                    normalizedFrom,
+                    'Thank you for your message. This is an automated login service. Please use the app to initiate login.'
+                  );
+                }
                   
-                // Auto-reply to incoming messages
-                await services.whatsapp.sendTextMessage(
-                  normalizedFrom,
-                  'Thank you for your message. This is an automated login service. Please use the app to initiate login.'
-                );
-              }
+                // Handle interactive button responses (new secure flow)
+                if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
+                  const buttonId = message.interactive.button_reply.id;
+                  console.log(`Received button click from ${from} with token: ${buttonId}. Normalized from: ${normalizedFrom}`);
+                    
+                  // Process verification token
+                  await handleVerificationToken(c, services.auth, normalizedFrom, buttonId);
+                }
                 
-              // Handle button clicks
-              if (message.type === 'button' && message.button) {
-                const payload = message.button.payload;
-                console.log(`Received button click from ${from} with payload: ${payload}. Normalized from: ${normalizedFrom}`);
-                  
-                // Process button actions if needed
-                await handleAuthButtonPayload(c, services.auth, services.whatsapp, normalizedFrom, payload);
+                // Handle legacy button clicks (for backward compatibility)
+                if (message.type === 'button' && message.button) {
+                  const payload = message.button.payload;
+                  console.log(`Received legacy button click from ${from} with payload: ${payload}. Normalized from: ${normalizedFrom}`);
+                    
+                  // Process verification token (same handler)
+                  await handleVerificationToken(c, services.auth, normalizedFrom, payload);
+                }
               }
             }
           }
         }
       }
+        
+      return c.json({ success: true });
     }
       
-    return c.json({ success: true });
+    return c.json({ success: false, error: 'Invalid payload' }, 400);
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    return c.text('Internal Server Error', 500);
   }
-    
-  return c.json({ success: false, error: 'Invalid payload' }, 400);
 }
 
-async function handleAuthButtonPayload(
+async function handleVerificationToken(
   c: Context<{
     Bindings: Env;
     Variables: Variables;
   }>,
   authService: AuthService,
-  whatsappService: WhatsAppService,
   phoneNumber: string,
   token: string
 ) {
-  const result = await authService.verifyLogin(token);
-
-  if (result) {
-    const { authToken, refreshToken, userId } = result;
-    console.log(`User ${userId} authenticated. AuthToken: ${authToken}, RefreshToken: ${refreshToken}`);
+  try {
+    // Verify the token and complete authentication
+    const result = await authService.verifyWebhookToken(phoneNumber, token);
     
-    // Update the session with the new tokens and set status to 'ready'
-    const sessionId = c.get('authInfo')?.sessionId; // Assuming session ID is available in authInfo after verifyLogin creates a session
-    if (sessionId) {
-      await authService.getUserService().updateSessionTokens(sessionId, authToken, refreshToken);
-      console.log(`Session ${sessionId} updated with tokens.`);
+    if (result) {
+      const { accessToken, refreshToken, userId } = result;
+      console.log(`User ${userId} authenticated successfully for ${phoneNumber}`);
+      
+      // Log token info (first 20 chars for security)
+      console.log('Tokens generated:', {
+        userId: result.userId,
+        accessToken: result.accessToken.substring(0, 20) + '...',
+        refreshToken: result.refreshToken.substring(0, 20) + '...'
+      });
+      
+      // TODO: Implement real-time token delivery to client
+      // This could involve:
+      // 1. WebSocket connection identified by session ID
+      // 2. Server-Sent Events
+      // 3. Storing tokens in a temporary store for client polling
+      // 4. Push notification to mobile app
+      
+      // For now, tokens are generated and logged
+      // The client application needs to implement a mechanism to receive these tokens
+      
     } else {
-      console.error('Session ID not found after successful login verification.');
-      // This indicates a potential issue in the flow where session is not created or available
+      console.log(`Authentication failed for ${phoneNumber} with token ${token.substring(0, 10)}...`);
+      
+      // Note: We don't send error messages back via WhatsApp to avoid spam
+      // and potential security issues. The client should handle timeout scenarios.
     }
-
-  } else {
-    console.log(`Failed to verify token for phone number: ${phoneNumber}`);
-    // Optionally send a message back to the user via WhatsApp if verification fails
-    await whatsappService.sendTextMessage(
-      phoneNumber,
-      'Authentication failed. Please try again.'
-    );
+  } catch (error) {
+    console.error('Error handling verification token:', error);
   }
 }

@@ -1,6 +1,7 @@
 name = "whatsapp-otpless-auth"
 main = "src/index.ts"
 compatibility_date = "2023-10-16"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"

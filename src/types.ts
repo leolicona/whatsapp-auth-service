@@ -16,6 +16,24 @@ export interface Session {
   status: 'pending' | 'ready' | 'completed';
 }
 
+export interface VerificationToken {
+  id: string;
+  token_hash: string;
+  phone_number: string;
+  expires_at: number;
+  used_at?: number;
+  created_at: number;
+}
+
+export interface RefreshToken {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  expires_at: number;
+  created_at: number;
+  revoked_at?: number;
+}
+
 export interface WhatsAppMessage {
   messaging_product: string;
   recipient_type: string;
@@ -105,7 +123,8 @@ export type Variables = {
   services: {
     whatsapp: any; 
     user: any;     
-    auth: any;     
+    auth: any;
+    verification: any;
   };
   authInfo?: AuthInfo; // Optional authInfo property
 };

@@ -1,11 +1,11 @@
-import { Hono, Context } from 'hono';
+import { Context } from 'hono';
 import { AuthService } from '../services/auth';
 import { phoneSchema } from '../middleware/validation';
 import { authMiddleware } from '../middleware/auth';
 import { Env, Variables } from '../types';
 import { z } from 'zod';
 
-export async function handleLogin(c: Context<{
+export async function handleInitiate(c: Context<{
   Bindings: Env;
   Variables: Variables;
 }>, authService: AuthService, phone_number: string) {
@@ -13,37 +13,45 @@ export async function handleLogin(c: Context<{
   const result = await authService.initiateLogin(phone_number);
   
   if (result.success) {
-    return c.json({ success: true, message: 'Login link sent via WhatsApp', sessionId: result.sessionId });
+    return c.json({ status: 'Confirmation message sent.' });
   } else {
-    return c.json({ success: false, error: 'Failed to send login link' }, 500);
+    return c.json({ error: 'Failed to send confirmation message' }, 500);
   }
 }
 
-export async function handleVerify(c: Context<{
+export async function handleRefreshToken(c: Context<{
   Bindings: Env;
   Variables: Variables;
 }>, authService: AuthService) {
-  const { token } = await c.req.json();
-  const result = await authService.verifyLogin(token);
+  const { refresh_token, user_id } = await c.req.json();
+  
+  if (!refresh_token || !user_id) {
+    return c.json({ error: 'Missing refresh_token or user_id' }, 400);
+  }
+  
+  const result = await authService.refreshAccessToken(refresh_token, user_id);
   
   if (result) {
-    return c.json({ success: true, auth_token: result.authToken });
+    return c.json({ 
+      access_token: result.accessToken, 
+      refresh_token: result.refreshToken 
+    });
   } else {
-    return c.json({ success: false, error: 'Invalid or expired token' }, 400);
+    return c.json({ error: 'Invalid or expired refresh token' }, 401);
   }
 }
 
 export async function handleLogout(c: Context<{
   Bindings: Env;
   Variables: Variables;
-}>) {
-  const services = c.get('services');
-  const authService = services.auth;
-  const authInfo = c.get('authInfo'); // authInfo is set by authMiddleware
-  if (!authInfo) {
-    return c.json({ error: 'Unauthorized' }, 401);
+}>, authService: AuthService) {
+  const { user_id, refresh_token } = await c.req.json();
+  
+  if (!user_id) {
+    return c.json({ error: 'Missing user_id' }, 400);
   }
-  const success = await authService.logout(authInfo.sessionId);
+  
+  const success = await authService.logout(user_id, refresh_token);
   
   if (success) {
     return c.json({ success: true, message: 'Logged out successfully' });
@@ -55,33 +63,24 @@ export async function handleLogout(c: Context<{
 export async function handleValidate(c: Context<{
   Bindings: Env;
   Variables: Variables;
-}>) {
-  const services = c.get('services');
-  const authService = services.auth;
-  const authInfo = c.get('authInfo'); // authInfo is set by authMiddleware
-  if (!authInfo) {
-    return c.json({ error: 'Unauthorized' }, 401);
+}>, authService: AuthService) {
+  const authHeader = c.req.header('Authorization');
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Missing or invalid authorization header' }, 401);
   }
+  
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  const authInfo = await authService.validateAccessToken(token);
+  
+  if (!authInfo) {
+    return c.json({ error: 'Invalid or expired token' }, 401);
+  }
+  
   return c.json({ valid: true, userId: authInfo.userId });
 }
 
-export async function handlePollTokens(c: Context<{
-  Bindings: Env;
-  Variables: Variables;
-}>) {
-  const services = c.get('services');
-  const userService = services.user;
-  const sessionId = c.req.query('sessionId');
-
-  if (!sessionId) {
-    return c.json({ error: 'Session ID is required' }, 400);
-  }
-
-  const tokens = await userService.getSessionTokens(sessionId);
-
-  if (tokens) {
-    return c.json({ success: true, ...tokens });
-  } else {
-    return c.json({ success: false, message: 'Tokens not ready or session expired.' }, 202); // 202 Accepted for polling
-  }
-}
+// Note: handlePollTokens has been removed as the new secure flow
+// delivers tokens directly via webhook processing. Client applications
+// should implement real-time communication (WebSocket, SSE) or
+// alternative token delivery mechanisms.

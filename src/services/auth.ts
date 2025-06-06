@@ -1,13 +1,8 @@
 import { UserService } from './user';
 import { WhatsAppService } from './whatsapp';
+import { VerificationService } from './verification';
 import { createJWT, verifyJWT } from '../utils/jwt';
 import { CONFIG } from '../config';
-import { generateRandomId } from '../utils/crypto';
-
-interface LoginTokenPayload {
-  phone: string;
-  exp: number;
-}
 
 interface AuthTokenPayload {
   userId: string;
@@ -17,120 +12,122 @@ interface AuthTokenPayload {
 export class AuthService {
   private userService: UserService;
   private whatsappService: WhatsAppService;
+  private verificationService: VerificationService;
 
-  constructor(userService: UserService, whatsappService: WhatsAppService) {
+  constructor(userService: UserService, whatsappService: WhatsAppService, verificationService: VerificationService) {
     this.userService = userService;
     this.whatsappService = whatsappService;
+    this.verificationService = verificationService;
   }
 
-  async initiateLogin(phoneNumber: string): Promise<{ success: boolean; sessionId?: string }> {
+  async initiateLogin(phoneNumber: string): Promise<{ success: boolean }> {
     // Format phone number to E.164 format (required by WhatsApp)
     const formattedPhone = this.formatPhoneNumber(phoneNumber);
     
-    // Find or create the user first to ensure a user ID is available
-    let user = await this.userService.findUserByPhone(formattedPhone);
-    if (!user) {
-      user = await this.userService.createUser(formattedPhone);
-    }
-
-    // Create a new session for this login attempt
-    const session = await this.userService.createSession(user.id, CONFIG.JWT.EXPIRY);
-    const sessionId = session.id;
-
-    // Create a short-lived token for this login attempt including the sessionId
-    const loginToken = await createJWT(
-      { phone: formattedPhone, sessionId: sessionId },
-      60 * 15 // 15 minutes expiry
-    );
+    // Check if user exists (but don't create yet)
+    const existingUser = await this.userService.findUserByPhone(formattedPhone);
+    const isNewUser = !existingUser;
     
-    const buttonText = user ? 'Confirm Login' : 'Confirm Registration';
-    const bodyText = user
-      ? 'Tap the button to log in to your account.'
-      : 'Tap the button to confirm your registration.';
+    // Generate secure verification token
+    const { token: plainToken } = await this.verificationService.createVerificationToken(formattedPhone);
+    
+    // Select message content based on user existence
+    const buttonText = isNewUser ? 'Sign Up' : 'Confirm Login';
+    const bodyText = isNewUser
+      ? 'Hello!\n\nWe\'ve received a request to create a new account with this phone number.\n\nPlease press the button below in the next 10 minutes to confirm. If you haven\'t made this request, you can safely ignore this message.'
+      : 'Welcome back!\n\nTap the button below to log in to your account. This link will expire in 10 minutes.';
 
-    // Send the interactive button message via WhatsApp
+    // Send the interactive button message via WhatsApp with plain-text token
     try {
       await this.whatsappService.sendInteractiveButtonMessage(
         formattedPhone,
         buttonText,
-        loginToken,
+        plainToken, // Use plain-text token as button payload
         bodyText
       );
-      // await this.whatsappService.sendHelloWorldMessage(formattedPhone);
-      return { success: true, sessionId: sessionId };
+      return { success: true };
     } catch (error) {
       console.error('Failed to send WhatsApp interactive message:', error);
       return { success: false };
     }
   }
 
-  async verifyLogin(token: string): Promise<{ authToken: string; userId: string; refreshToken: string } | null> {
-    // Verify the login token
-    const payload = await verifyJWT<LoginTokenPayload & { sessionId: string }>(token);
-    if (!payload || !payload.phone || !payload.sessionId) {
+  async verifyWebhookToken(phoneNumber: string, plainToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
+    // Validate and consume the verification token
+    const isValidToken = await this.verificationService.validateAndConsumeToken(plainToken, phoneNumber);
+    if (!isValidToken) {
       return null;
     }
 
-    // Check if the session is still valid and pending
-    const session = await this.userService.findSessionById(payload.sessionId);
-    if (!session || session.status !== 'pending') {
-      console.log(`Session ${payload.sessionId} not found or not in pending status.`);
-      return null;
-    }
-    
-    // Find or create the user
-    let user = await this.userService.findUserByPhone(payload.phone);
+    // Create or retrieve user record
+    let user = await this.userService.findUserByPhone(phoneNumber);
     if (!user) {
-      // This case should ideally not happen if user was created on initiateLogin
-      user = await this.userService.createUser(payload.phone);
+      // Create new user
+      user = await this.userService.createUser(phoneNumber);
     } else {
+      // Update last login for existing user
       await this.userService.updateLastLogin(user.id);
     }
-    
-    // Update the existing session to 'ready' with tokens
-    // (The actual session is already created in initiateLogin)
-    // No need to create a new session here.
 
-    // Create auth and refresh tokens
-    const authToken = await createJWT({
+    // Generate JWT access token (short-lived)
+    const accessToken = await createJWT({
       userId: user.id,
-      sessionId: payload.sessionId
-    });
-    
-    const refreshToken = await createJWT({
-      userId: user.id,
-      sessionId: payload.sessionId
-    }, CONFIG.JWT.EXPIRY * 2);
-    
-    // Mark the session as ready with tokens. The frontend will pick these up.
-    await this.userService.updateSessionTokens(payload.sessionId, authToken, refreshToken);
+      type: 'access'
+    }, 15 * 60); // 15 minutes
 
-    return { authToken, userId: user.id, refreshToken };
+    // Generate and store refresh token (long-lived)
+    const { token: refreshToken } = await this.verificationService.createRefreshToken(user.id);
+
+    return { accessToken, refreshToken, userId: user.id };
   }
 
-  async verifyLoginTokenOnly(token: string): Promise<(LoginTokenPayload & { sessionId: string }) | null> {
-    const payload = await verifyJWT<LoginTokenPayload & { sessionId: string }>(token);
-    return payload;
-  }
-
-  async validateAuthToken(token: string): Promise<{ userId: string, sessionId: string } | null> {
-    const payload = await verifyJWT<AuthTokenPayload>(token);
-    if (!payload || !payload.userId || !payload.sessionId) {
+  async validateAccessToken(token: string): Promise<{ userId: string } | null> {
+    const payload = await verifyJWT<{ userId: string; type: string }>(token);
+    if (!payload || !payload.userId || payload.type !== 'access') {
       return null;
     }
     
-    // Verify the session exists and is valid
-    const session = await this.userService.findSessionById(payload.sessionId);
-    if (!session) {
+    // Verify the user still exists
+    const user = await this.userService.findUserById(payload.userId);
+    if (!user) {
       return null;
     }
     
-    return { userId: payload.userId, sessionId: payload.sessionId };
+    return { userId: payload.userId };
   }
 
-  async logout(sessionId: string): Promise<boolean> {
+  async refreshAccessToken(refreshToken: string, userId: string): Promise<{ accessToken: string; refreshToken: string } | null> {
+    // Validate the refresh token
+    const tokenRecord = await this.verificationService.validateRefreshToken(refreshToken, userId);
+    if (!tokenRecord) {
+      return null;
+    }
+
+    // Generate new access token
+    const accessToken = await createJWT({
+      userId: userId,
+      type: 'access'
+    }, 15 * 60); // 15 minutes
+
+    // Generate new refresh token (token rotation)
+    await this.verificationService.revokeRefreshToken(tokenRecord.id);
+    const { token: newRefreshToken } = await this.verificationService.createRefreshToken(userId);
+
+    return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  async logout(userId: string, refreshToken?: string): Promise<boolean> {
     try {
-      await this.userService.deleteSession(sessionId);
+      if (refreshToken) {
+        // Revoke the specific refresh token
+        const tokenRecord = await this.verificationService.validateRefreshToken(refreshToken, userId);
+        if (tokenRecord) {
+          await this.verificationService.revokeRefreshToken(tokenRecord.id);
+        }
+      } else {
+        // Revoke all refresh tokens for the user (logout from all devices)
+        await this.verificationService.revokeAllUserRefreshTokens(userId);
+      }
       return true;
     } catch (error) {
       console.error('Logout failed:', error);
