@@ -71,15 +71,25 @@ app.get('/api/auth/validate', async (c) => {
 app.get('/api/auth/ws', async (c) => {
   const sessionId = c.req.query('sessionId');
   if (!sessionId) {
-    return c.json({ error: 'Session ID is required' }, 400);
+    return c.json({
+      status: 'error',
+      statusCode: 400,
+      error: {
+        code: 'MISSING_SESSION_ID',
+        message: 'Session ID is required',
+        details: 'sessionId query parameter is required for WebSocket connection'
+      }
+    }, 400);
   }
 
-  const id = c.env.AUTH_SESSION_DO.idFromString(sessionId);
+  const id = c.env.AUTH_SESSION_DO.idFromName(sessionId);
   const stub = c.env.AUTH_SESSION_DO.get(id);
 
   // Forward the WebSocket request to the Durable Object
-  // The DO will handle the WebSocket handshake
-  return stub.fetch(c.req.url, c.req.raw);
+  // The DO expects the path '/websocket'
+  const doUrl = new URL(c.req.url);
+  doUrl.pathname = '/websocket';
+  return stub.fetch(doUrl.toString(), c.req.raw);
 });
 
 // Webhook routes
@@ -102,8 +112,15 @@ app.post('/api/webhook', async (c) => {
   });
   stub.fetch(newRequest)
   //return stub.fetch(newRequest);
-  // retun 200
-  return c.json({ status: 'ok' }, 200);
+  // return 200
+  return c.json({
+    status: 'success',
+    statusCode: 200,
+    message: 'Webhook received successfully',
+    data: {
+      received: true
+    }
+  }, 200);
 });
 
 // User routes

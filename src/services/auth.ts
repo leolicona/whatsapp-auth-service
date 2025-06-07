@@ -20,7 +20,7 @@ export class AuthService {
     this.verificationService = verificationService;
   }
 
-  async initiateLogin(phoneNumber: string): Promise<{ success: boolean }> {
+  async initiateLogin(phoneNumber: string): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     console.log(`[AuthService] Initiating login for phone: ${phoneNumber}`);
     
     // Format phone number to E.164 format (required by WhatsApp)
@@ -34,7 +34,7 @@ export class AuthService {
     console.log(`[AuthService] User lookup result - isNewUser: ${isNewUser}, existingUser:`, existingUser);
     
     // Generate secure verification token with user status
-    const { token: encodedToken } = await this.verificationService.createVerificationToken(formattedPhone, isNewUser);
+    const { token: encodedToken, tokenId } = await this.verificationService.createVerificationToken(formattedPhone, isNewUser);
     
     console.log(`[AuthService] Generated encoded token length: ${encodedToken.length}`);
     
@@ -58,10 +58,10 @@ export class AuthService {
       );
       
       console.log(`[AuthService] WhatsApp message sent successfully`);
-      return { success: true };
+      return { success: true, sessionId: tokenId };
     } catch (error) {
       console.error('[AuthService] Failed to send WhatsApp interactive message:', error);
-      return { success: false };
+      return { success: false, error: 'Failed to send WhatsApp message' };
     }
   }
 

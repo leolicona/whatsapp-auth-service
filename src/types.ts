@@ -112,15 +112,90 @@ export interface WhatsAppWebhookPayload {
 
 export interface Env {
   DB: D1Database;
-  WHATSAPP_API_TOKEN: string;
-  WHATSAPP_PHONE_NUMBER_ID: string;
-  WHATSAPP_WEBHOOK_VERIFY_TOKEN: string;
-  JWT_SECRET: string;
-  FRONTEND_URL: string;
-  MOCK_WHATSAPP_API?: string;
   WEBHOOK_PROCESSOR_DO: DurableObjectNamespace;
   AUTH_SESSION_DO: DurableObjectNamespace;
+  JWT_SECRET: string;
+  WHATSAPP_ACCESS_TOKEN: string;
+  WHATSAPP_PHONE_NUMBER_ID: string;
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN: string;
+  WHATSAPP_BUSINESS_ACCOUNT_ID: string;
 }
+
+// Standardized API Response Types
+export interface ApiSuccessResponse<T = any> {
+  status: 'success';
+  statusCode: number;
+  message: string;
+  data: T;
+}
+
+export interface ApiErrorResponse {
+  status: 'error';
+  statusCode: number;
+  error: {
+    code: string;
+    message: string;
+    details: string;
+  };
+}
+
+export type ApiResponse<T = any> = ApiSuccessResponse<T> | ApiErrorResponse;
+
+// Helper functions to create standardized responses
+export function createSuccessResponse<T>(
+  data: T,
+  message: string,
+  statusCode: number = 200
+): ApiSuccessResponse<T> {
+  return {
+    status: 'success',
+    statusCode,
+    message,
+    data
+  };
+}
+
+export function createErrorResponse(
+  code: string,
+  message: string,
+  details: string,
+  statusCode: number = 400
+): ApiErrorResponse {
+  return {
+    status: 'error',
+    statusCode,
+    error: {
+      code,
+      message,
+      details
+    }
+  };
+}
+
+// Common error codes
+export const ERROR_CODES = {
+  // Authentication errors
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  INVALID_TOKEN: 'INVALID_TOKEN',
+  MISSING_AUTHORIZATION: 'MISSING_AUTHORIZATION',
+  INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
+  
+  // User errors
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  INVALID_NAME: 'INVALID_NAME',
+  
+  // Request errors
+  MISSING_PARAMETERS: 'MISSING_PARAMETERS',
+  MISSING_USER_ID: 'MISSING_USER_ID',
+  MISSING_SESSION_ID: 'MISSING_SESSION_ID',
+  
+  // Operation errors
+  MESSAGE_SEND_FAILED: 'MESSAGE_SEND_FAILED',
+  LOGOUT_FAILED: 'LOGOUT_FAILED',
+  UPDATE_FAILED: 'UPDATE_FAILED'
+} as const;
+
+export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
 
 export interface AuthInfo {
   userId: string;
