@@ -9,6 +9,7 @@ export class WebhookProcessorDO {
   state: DurableObjectState;
   env: Env;
 
+
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
@@ -84,13 +85,14 @@ export class WebhookProcessorDO {
                   const userService = new UserService(this.env.DB);
                   const verificationService = new VerificationService(this.env.DB);
                   const authService = new AuthService(userService, whatsappService, verificationService);
-
+                  console.log(`[WebhookProcessor] AuthService instance created`);
                   await this.handleAuthButtonPayload(
                     authService,
                     whatsappService,
                     normalizedFrom,
                     buttonPayload
                   );
+                  console.log(`[WebhookProcessor] Auth button payload processed`);
                 }
               }
             } else {
