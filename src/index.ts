@@ -110,17 +110,17 @@ app.post('/api/webhook', async (c) => {
     redirect: c.req.raw.redirect,
     cf: c.req.raw.cf, // Preserve cf properties
   });
-  stub.fetch(newRequest)
-  //return stub.fetch(newRequest);
+  return stub.fetch(newRequest)
+ 
   // return 200
-  return c.json({
+ /*  return c.json({
     status: 'success',
     statusCode: 200,
     message: 'Webhook received successfully',
     data: {
       received: true
     }
-  }, 200);
+  }, 200); */
 });
 
 // User routes

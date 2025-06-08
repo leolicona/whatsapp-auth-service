@@ -40,6 +40,7 @@ export interface TokenPayload {
   phoneNumber: string;
   timestamp: number;
   expiresAt: number;
+  sessionId?: string;
 }
 
 export interface WhatsAppMessage {

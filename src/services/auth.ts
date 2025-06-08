@@ -4,11 +4,19 @@ import { VerificationService } from './verification';
 import { createJWT, verifyJWT } from '../utils/jwt';
 import { CONFIG } from '../config';
 
+// Interface defining the structure of JWT payload for authentication tokens
 interface AuthTokenPayload {
   userId: string;
   sessionId: string;
 }
 
+/**
+ * AuthService handles all authentication-related operations including:
+ * - Login initiation via WhatsApp
+ * - Token verification and validation
+ * - JWT token generation and management
+ * - User session management
+ */
 export class AuthService {
   private userService: UserService;
   private whatsappService: WhatsAppService;
@@ -20,25 +28,36 @@ export class AuthService {
     this.verificationService = verificationService;
   }
 
+  /**
+   * Initiates the login process by sending a WhatsApp message with verification button
+   * 
+   * Flow:
+   * 1. Format phone number to E.164 standard
+   * 2. Check if user exists to determine if this is signup or login
+   * 3. Generate secure verification token with user status
+   * 4. Send WhatsApp interactive button message
+   * 5. Return session ID for tracking
+   */
   async initiateLogin(phoneNumber: string): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     console.log(`[AuthService] Initiating login for phone: ${phoneNumber}`);
     
-    // Format phone number to E.164 format (required by WhatsApp)
+    // Step 1: Format phone number to E.164 format (required by WhatsApp)
     const formattedPhone = this.formatPhoneNumber(phoneNumber);
     console.log(`[AuthService] Formatted phone number: ${formattedPhone}`);
     
-    // Check if user exists (but don't create yet)
+    // Step 2: Check if user exists (but don't create yet - we'll do that after verification)
     const existingUser = await this.userService.findUserByPhone(formattedPhone);
     const isNewUser = !existingUser;
     
     console.log(`[AuthService] User lookup result - isNewUser: ${isNewUser}, existingUser:`, existingUser);
     
-    // Generate secure verification token with user status
+    // Step 3: Generate secure verification token that includes user status (new/existing)
+    // This token will be embedded in the WhatsApp button and used for verification
     const { token: encodedToken, tokenId } = await this.verificationService.createVerificationToken(formattedPhone, isNewUser);
     
     console.log(`[AuthService] Generated encoded token length: ${encodedToken.length}`);
     
-    // Select message content based on user existence
+    // Step 4: Customize message content based on whether this is signup or login
     const buttonText = isNewUser ? 'Sign Up' : 'Confirm Login';
     const bodyText = isNewUser
       ? 'Hello!\n\nWe\'ve received a request to create a new account with this phone number.\n\nPlease press the button below in the next 10 minutes to confirm. If you haven\'t made this request, you can safely ignore this message.'
@@ -46,7 +65,8 @@ export class AuthService {
 
     console.log(`[AuthService] Message content - buttonText: ${buttonText}, bodyText length: ${bodyText.length}`);
 
-    // Send the interactive button message via WhatsApp with encoded token
+    // Step 5: Send the interactive button message via WhatsApp
+    // The encoded token is embedded as the button payload
     try {
       console.log(`[AuthService] Sending WhatsApp message to: ${formattedPhone}`);
       
@@ -65,10 +85,20 @@ export class AuthService {
     }
   }
 
+  /**
+   * Verifies the webhook token and completes the authentication process
+   * 
+   * Flow:
+   * 1. Validate and consume the verification token
+   * 2. Handle user creation or login based on token status
+   * 3. Generate JWT access and refresh tokens
+   * 4. Return authentication tokens
+   */
   async verifyWebhookToken(phoneNumber: string, encodedToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
     console.log(`[AuthService] Verifying webhook token for phone: ${phoneNumber}, token length: ${encodedToken.length}`);
     
-    // Validate and consume the verification token
+    // Step 1: Validate and consume the verification token
+    // This ensures the token is valid, not expired, and hasn't been used before
     const tokenValidation = await this.verificationService.validateAndConsumeToken(encodedToken, phoneNumber);
     if (!tokenValidation.isValid) {
       console.log(`[AuthService] Token validation failed`);
@@ -77,7 +107,7 @@ export class AuthService {
 
     console.log(`[AuthService] Token validation successful, isNewUser: ${tokenValidation.isNewUser}`);
 
-    // Use the user status from the token to optimize user handling
+    // Step 2: Handle user creation or existing user login based on token status
     let user;
     if (tokenValidation.isNewUser) {
       // Create new user (we know from token this is a new user)
@@ -85,7 +115,7 @@ export class AuthService {
       user = await this.userService.createUser(phoneNumber);
       console.log(`[AuthService] New user created: ${user.id} for phone: ${phoneNumber}`);
     } else {
-      // Retrieve existing user and update last login
+      // Retrieve existing user and update last login timestamp
       console.log(`[AuthService] Looking up existing user for phone: ${phoneNumber}`);
       user = await this.userService.findUserByPhone(phoneNumber);
       if (!user) {
@@ -101,13 +131,13 @@ export class AuthService {
 
     console.log(`[AuthService] Generating JWT tokens for user: ${user.id}`);
 
-    // Generate JWT access token (short-lived)
+    // Step 3: Generate JWT access token (short-lived for security)
     const accessToken = await createJWT({
       userId: user.id,
       type: 'access'
-    }, 15 * 60); // 15 minutes
+    }, 15 * 60); // 15 minutes expiration
 
-    // Generate and store refresh token (long-lived)
+    // Step 4: Generate and store refresh token (long-lived for convenience)
     const { token: refreshToken } = await this.verificationService.createRefreshToken(user.id);
 
     console.log(`[AuthService] Tokens generated successfully - accessToken length: ${accessToken.length}, refreshToken length: ${refreshToken.length}`);
@@ -115,13 +145,23 @@ export class AuthService {
     return { accessToken, refreshToken, userId: user.id };
   }
 
+  /**
+   * Validates an access token and returns user information
+   * 
+   * Flow:
+   * 1. Verify JWT signature and decode payload
+   * 2. Check token type and extract user ID
+   * 3. Verify user still exists in database
+   * 4. Return user ID if valid
+   */
   async validateAccessToken(token: string): Promise<{ userId: string } | null> {
+    // Step 1: Verify JWT signature and decode payload
     const payload = await verifyJWT<{ userId: string; type: string }>(token);
     if (!payload || !payload.userId || payload.type !== 'access') {
       return null;
     }
     
-    // Verify the user still exists
+    // Step 2: Verify the user still exists (user might have been deleted)
     const user = await this.userService.findUserById(payload.userId);
     if (!user) {
       return null;
@@ -130,36 +170,54 @@ export class AuthService {
     return { userId: payload.userId };
   }
 
+  /**
+   * Refreshes an access token using a valid refresh token
+   * 
+   * Flow:
+   * 1. Validate the refresh token
+   * 2. Generate new access token
+   * 3. Rotate refresh token (generate new one and revoke old)
+   * 4. Return new token pair
+   */
   async refreshAccessToken(refreshToken: string, userId: string): Promise<{ accessToken: string; refreshToken: string } | null> {
-    // Validate the refresh token
+    // Step 1: Validate the refresh token against database
     const tokenRecord = await this.verificationService.validateRefreshToken(refreshToken, userId);
     if (!tokenRecord) {
       return null;
     }
 
-    // Generate new access token
+    // Step 2: Generate new access token with fresh expiration
     const accessToken = await createJWT({
       userId: userId,
       type: 'access'
     }, 15 * 60); // 15 minutes
 
-    // Generate new refresh token (token rotation)
+    // Step 3: Implement token rotation for security
+    // Revoke the old refresh token and generate a new one
     await this.verificationService.revokeRefreshToken(tokenRecord.id);
     const { token: newRefreshToken } = await this.verificationService.createRefreshToken(userId);
 
     return { accessToken, refreshToken: newRefreshToken };
   }
 
+  /**
+   * Logs out a user by revoking refresh tokens
+   * 
+   * Flow:
+   * 1. If specific refresh token provided, revoke only that token
+   * 2. If no token provided, revoke all user's refresh tokens (logout from all devices)
+   * 3. Return success status
+   */
   async logout(userId: string, refreshToken?: string): Promise<boolean> {
     try {
       if (refreshToken) {
-        // Revoke the specific refresh token
+        // Step 1: Revoke the specific refresh token (logout from current device)
         const tokenRecord = await this.verificationService.validateRefreshToken(refreshToken, userId);
         if (tokenRecord) {
           await this.verificationService.revokeRefreshToken(tokenRecord.id);
         }
       } else {
-        // Revoke all refresh tokens for the user (logout from all devices)
+        // Step 2: Revoke all refresh tokens for the user (logout from all devices)
         await this.verificationService.revokeAllUserRefreshTokens(userId);
       }
       return true;
@@ -169,10 +227,18 @@ export class AuthService {
     }
   }
 
+  /**
+   * Verifies login token and completes full authentication process
+   * 
+   * Flow:
+   * 1. Extract phone number from token
+   * 2. Verify webhook token and get authentication tokens
+   * 3. Return formatted response with auth tokens
+   */
   async verifyLogin(token: string): Promise<{ authToken: string; refreshToken: string; userId: string } | null> {
     console.log(`[AuthService] Verifying login with token length: ${token.length}`);
     
-    // Extract phone number from token
+    // Step 1: Extract phone number from token without consuming it
     const phoneNumber = await this.verificationService.getPhoneNumberFromToken(token);
     if (!phoneNumber) {
       console.log(`[AuthService] Failed to extract phone number from token`);
@@ -181,6 +247,7 @@ export class AuthService {
 
     console.log(`[AuthService] Extracted phone number: ${phoneNumber}`);
 
+    // Step 2: Verify webhook token and complete authentication
     const result = await this.verifyWebhookToken(phoneNumber, token);
     if (result) {
       console.log(`[AuthService] Login verification successful for user: ${result.userId}`);
@@ -195,10 +262,21 @@ export class AuthService {
     return null;
   }
 
+  /**
+   * Verifies login token WITHOUT consuming it (for extracting information only)
+   * 
+   * Flow:
+   * 1. Extract phone number from token
+   * 2. Validate token without marking it as used
+   * 3. Return token information for further processing
+   * 
+   * Note: This method is used when you need token information but want to
+   * consume the token later with a different method
+   */
   async verifyLoginTokenOnly(token: string): Promise<{ phoneNumber: string; isNewUser: boolean; sessionId?: string } | null> {
     console.log(`[AuthService] Verifying login token only, token length: ${token.length}`);
     
-    // Extract phone number from token without consuming it
+    // Step 1: Extract phone number from token without consuming it
     const phoneNumber = await this.verificationService.getPhoneNumberFromToken(token);
     if (!phoneNumber) {
       console.log(`[AuthService] Failed to extract phone number from token`);
@@ -207,7 +285,7 @@ export class AuthService {
 
     console.log(`[AuthService] Extracted phone number: ${phoneNumber}`);
 
-    // Validate token without consuming it
+    // Step 2: Validate token without consuming it (read-only validation)
     const tokenValidation = await this.verificationService.validateTokenOnly(token, phoneNumber);
     if (!tokenValidation.isValid) {
       console.log(`[AuthService] Token validation failed`);
@@ -222,6 +300,7 @@ export class AuthService {
     };
   }
 
+  // Getter methods for accessing injected services
   getUserService(): UserService {
     return this.userService;
   }
@@ -230,11 +309,19 @@ export class AuthService {
     return this.whatsappService;
   }
 
+  /**
+   * Formats phone number to E.164 international format
+   * 
+   * Flow:
+   * 1. Remove all non-digit characters
+   * 2. Add '+' prefix if not present
+   * 3. Return formatted number
+   */
   private formatPhoneNumber(phone: string): string {
-    // Remove any non-digit characters
+    // Step 1: Remove any non-digit characters (spaces, dashes, parentheses, etc.)
     const digits = phone.replace(/\D/g, '');
     
-    // Ensure the number starts with a '+'
+    // Step 2: Ensure the number starts with a '+' for E.164 format
     return digits.startsWith('+')
       ? digits
       : `+${digits}`;
