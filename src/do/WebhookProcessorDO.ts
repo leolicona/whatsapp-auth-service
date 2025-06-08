@@ -133,11 +133,13 @@ export class WebhookProcessorDO {
       // Find the sessionId from the loginToken payload (this was added in AuthService.initiateLogin)
       console.log(`[WebhookProcessor] Verifying login token to extract session info`);
       const loginTokenPayload = await authService.verifyLoginTokenOnly(token); // Need a new method to just verify token without full login flow
-
+      console.log(`[WebhookProcessor] Login token payload:`, loginTokenPayload);
       if (loginTokenPayload && loginTokenPayload.sessionId) {
         console.log(`[WebhookProcessor] Found sessionId: ${loginTokenPayload.sessionId}`);
         const sessionId = loginTokenPayload.sessionId;
-        const id = this.env.AUTH_SESSION_DO.idFromString(sessionId);
+        // Convert sessionId to a valid 64-character hex string for Durable Object ID
+        // We'll use the sessionId as a name to generate a consistent Durable Object ID
+        const id = this.env.AUTH_SESSION_DO.idFromName(sessionId);
         const stub = this.env.AUTH_SESSION_DO.get(id);
         
         console.log(`[WebhookProcessor] Sending tokens to AuthSessionDO`);

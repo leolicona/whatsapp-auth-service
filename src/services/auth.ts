@@ -293,10 +293,12 @@ export class AuthService {
     }
 
     console.log(`[AuthService] Token validation successful, isNewUser: ${tokenValidation.isNewUser}`);
-
+    console.log(`[AuthService] Token sessionId: ${tokenValidation.sessionId}`);
+    // Step 3: Return token information for further processing
     return {
       phoneNumber,
-      isNewUser: tokenValidation.isNewUser || false
+      isNewUser: tokenValidation.isNewUser || false,
+      sessionId: tokenValidation.sessionId
     };
   }
 

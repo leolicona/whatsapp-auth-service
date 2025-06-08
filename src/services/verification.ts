@@ -211,7 +211,7 @@ export class VerificationService {
    * Note: This method is used when you need to check token validity
    * but want to consume it later with a different method
    */
-  async validateTokenOnly(encodedToken: string, phoneNumber: string): Promise<{ isValid: boolean; isNewUser?: boolean }> {
+  async validateTokenOnly(encodedToken: string, phoneNumber: string): Promise<{ isValid: boolean; isNewUser?: boolean, sessionId?: string }> {
     // Step 1: Decode the token payload
     const payload = await this.decodeTokenPayload(encodedToken);
     if (!payload) {
@@ -228,12 +228,14 @@ export class VerificationService {
 
     // Step 3: Find the token record without consuming it (no UPDATE query)
     const tokenRecord = await this.db
-      .prepare('SELECT * FROM verification_tokens WHERE token_hash = ? AND phone_number = ? AND expires_at > ? AND used_at IS NULL')
+      .prepare('SELECT * FROM verification_tokens WHERE token_hash = ? AND phone_number = ? AND expires_at > ?')
       .bind(tokenHash, phoneNumber, now)
       .first<VerificationToken>();
 
+    console.log(`[VerificationService] Found token record:`, tokenRecord);
+
     // Step 4: Return validation result with user status
-    return { isValid: !!tokenRecord, isNewUser: payload.isNewUser };
+    return { isValid: !!tokenRecord, isNewUser: payload.isNewUser, sessionId: tokenRecord?.id };
   }
 
   /**
